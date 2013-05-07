@@ -77,10 +77,15 @@ class MyHandler(BaseHTTPRequestHandler):
                 sys.exit()
 
         except:
+                #Print out a stack trace
                 traceback.print_exc()
-                #self.wfile.close()
+
+                #Close output stream file
+                self.wfile.close()
                 return
-        #self.wfile.close()
+
+        #Close output stream file
+        self.wfile.close()
 
     
     def handle_send_request(self, request_path, s_range):
@@ -113,6 +118,8 @@ class MyHandler(BaseHTTPRequestHandler):
 
     def send_video(self, file_out, file_url, file_name, start_byte):
         print 'Send back video'
+        file_out.write('gooblygook')
+        file_out.flush()
 
 
     def get_file_size(self, url):
