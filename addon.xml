@@ -7,6 +7,7 @@
     <import addon="xbmc.python" version="2.1.0" />
   </requires>
   <extension point="xbmc.python.module" library="lib" />
+  <extension library="proxy.py" point="xbmc.service" start="startup" />
   <extension point="xbmc.addon.metadata">
     <platform>all</platform>
     <summary lang="en">Multi-connection/threaded Downloader</summary>
