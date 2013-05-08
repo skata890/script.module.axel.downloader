@@ -24,8 +24,9 @@ import sys
 import traceback
 import socket
 import base64
-import md5
+import hashlib
 import os
+import time
 import threading
 from SocketServer import ThreadingMixIn
 from BaseHTTPServer import HTTPServer, BaseHTTPRequestHandler
@@ -99,7 +100,7 @@ class MyHandler(BaseHTTPRequestHandler):
         #Check if file has been cached yet
         # - Grab file info if it has
         # - Else Save file info to cache
-        file_dest = os.path.join(common.profile_path, file_name)
+        file_dest = common.profile_path
         
         cached = self.get_from_cache(file_name)
         if cached:
@@ -130,24 +131,28 @@ class MyHandler(BaseHTTPRequestHandler):
         self.send_http_headers(file_name, rtype, content_size , etag)
 
         #Send the video file
-        self.send_video(self.wfile, file_url, file_dest, hrange, file_size)
+        self.send_video(self.wfile, file_url, file_dest, file_name, hrange)
 
 
-    def send_video(self, file_out, file_link, file_dest, start_byte, file_size):
+    def send_video(self, file_out, file_link, file_dest, file_name, start_byte):
         print 'Starting download at byte: %d' % start_byte
         
-        #import axel
-        #axel = axel.AxelDownloader()
+        full_path = os.path.join(common.profile_path, file_name)
+        
+        import axel
+        axel = axel.AxelDownloader()
 
         
-        #dt = threading.Thread(target=axel.download, args = (file_link, file_dest, file_name))
-        #dt.start()
+        dt = threading.Thread(target=axel.download, args = (file_link, file_dest, file_name))
+        dt.start()
         
         try:
             #Opening file
             
-            print 'FILE DEST: %s' % file_dest
-            out_fd = open(file_dest, "rb")
+            time.sleep(10)
+
+            print 'FILE DEST: %s' % full_path
+            out_fd = open(full_path, "rb")
             out_fd.seek(start_byte)
             file_out.write(out_fd.read())
             file_out.flush()
@@ -184,9 +189,9 @@ class MyHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
 
-    #Generate a unique md5 hash tag
+    #Generate a unique hash tag
     def generate_ETag(self, url):
-        md=md5.new()
+        md=hashlib.md5()
         md.update(url)
         return md.hexdigest()
 
