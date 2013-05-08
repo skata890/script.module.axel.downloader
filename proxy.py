@@ -25,8 +25,15 @@ import traceback
 import socket
 import base64
 import md5
+import os
+import threading
 from SocketServer import ThreadingMixIn
 from BaseHTTPServer import HTTPServer, BaseHTTPRequestHandler
+
+from CacheHandler import *
+import axel
+import common
+
 
 http_headers = {
     'User-Agent': 'Mozilla/5.0 (Windows; U; Windows NT 6.1; '
@@ -52,7 +59,7 @@ class MyHandler(BaseHTTPRequestHandler):
         self.answer_request()
 
 
-    #Analyze and handle incoming requests
+    #Handle incoming requests
     def answer_request(self):
         try:
 
@@ -63,39 +70,48 @@ class MyHandler(BaseHTTPRequestHandler):
             #If a range was sent in with the header
             requested_range=self.headers.getheader("Range")
 
-            print request_path
-            print requested_range
+            print 'REQUEST PATH: %s' % request_path
+            print 'REQUEST RANGE: %s' % requested_range
 
             #Expecting url to be sent in base64 encoded - saves any url issues with XBMC
-            (file_url,file_name)=self.decodeB64_url(request_path)
+            (file_url,file_name)=self.decode_B64_url(request_path)
 
             #Send file request
-            self.handle_send_request(request_path, requested_range)
+            self.handle_send_request(file_url, file_name, requested_range)
         
             #If a request to stop is sent, shut down the proxy
             if request_path=="stop":
                 sys.exit()
 
         except:
-                #Print out a stack trace
-                traceback.print_exc()
+            #Print out a stack trace
+            traceback.print_exc()
 
-                #Close output stream file
-                self.wfile.close()
-                return
+            #Close output stream file
+            self.wfile.close()
+            return
 
         #Close output stream file
         self.wfile.close()
 
     
-    def handle_send_request(self, request_path, s_range):
+    def handle_send_request(self, file_url, file_name, s_range):
 
-        #Request will Base64 encoded - decode
-        (file_url, file_name) = self.decodeB64_url(request_path)
+        #Check if file has been cached yet
+        # - Grab file info if it has
+        # - Else Save file info to cache
+        file_dest = os.path.join(common.profile_path, file_name)
+        
+        cached = self.get_from_cache(file_dest)
+        if cached:
+            (file_size, file_name) = cached
+        else:
+            file_size=int(self.get_file_size(file_url))
+            self.save_to_cache(file_dest, (file_size, file_name))
 
-        content_size=int(self.get_file_size(file_url))
-
-        (hrange, crange) = self.get_range_request(s_range, content_size)
+        (hrange, crange) = self.get_range_request(s_range, file_size)
+        
+        print 'REQUESTING %s and %s' % (hrange, crange)
         
         # Do we have to send a normal response or a range response?
         if s_range:
@@ -107,19 +123,30 @@ class MyHandler(BaseHTTPRequestHandler):
 
         #Set response type values
         rtype="application/x-msvideo"
-        etag=self.generate_ETag(request_path)
+        etag=self.generate_ETag(file_url)
 
+        content_size= file_size - hrange
+        
         #Send http response headers
         self.send_http_headers(file_name, rtype, content_size , etag)
 
         #Send the video file
-        self.send_video(self.wfile, file_url, file_name, hrange)
+        self.send_video(self.wfile, file_url, file_dest, hrange)
 
 
-    def send_video(self, file_out, file_url, file_name, start_byte):
-        print 'Send back video'
-        file_out.write('gooblygook')
+    def send_video(self, file_out, file_link, file_dest, start_byte):
+        print 'Starting download at byte: %d' % start_byte
+        
+        #import axel
+        #axel = axel.AxelDownloader()
+
+        
+        #dt = threading.Thread(target=axel.download, args = (file_link, file_dest, file_name))
+        #dt.start()
+
+        file_out.write(file_dest)
         file_out.flush()
+        
 
 
     def get_file_size(self, url):
@@ -133,9 +160,9 @@ class MyHandler(BaseHTTPRequestHandler):
     def send_http_headers(self, file_name, content_type, content_size , etag):
         print "Sending headers"
         try:
-                self.send_header("Content-Disposition", "inline; filename=\"" + file_name.encode('iso-8859-1', 'replace')+"\"")
+            self.send_header("Content-Disposition", "inline; filename=\"" + file_name.encode('iso-8859-1', 'replace')+"\"")
         except:
-                pass
+            pass
         self.send_header("Content-type", content_type)
         self.send_header("Last-Modified","Wed, 21 Feb 2000 08:43:39 GMT")
         self.send_header("ETag",etag)
@@ -166,7 +193,6 @@ class MyHandler(BaseHTTPRequestHandler):
                 hrange=str(hrange)
                 hrange=int(hrange.split("=")[1].split("-")[0])
                 #Build range string
-                # Is the -1 correct? It looks plausible to me.
                 crange="bytes "+str(hrange)+"-" +str(int(file_size)-1)+"/"+str(file_size)
             except:
                 # Failure to build range string? Create a 0- range.
@@ -175,10 +201,28 @@ class MyHandler(BaseHTTPRequestHandler):
         return (hrange, crange)
 
 
-    def decodeB64_url(self, b64):
+    def decode_B64_url(self, b64):
         url = base64.b64decode(b64)
         file_name = url.split('/')[-1]
         return (url, file_name )
+
+
+    def get_from_cache(self, request):
+        global cache_handler
+        try:
+            a=cache_handler.getFromCache(request)
+            return a
+        except:
+            return None
+
+
+    def save_to_cache(self, request, what):
+        global cache_handler
+        try:
+            cache_handler.saveToCache(request, what)
+        except Exception, e:
+            print 'S EXCEPTION', e
+            pass
 
 
 class Server(HTTPServer):
@@ -205,12 +249,16 @@ class ThreadedHTTPServer(ThreadingMixIn, Server):
 HOST_NAME = '127.0.0.1'
 PORT_NUMBER = 64653
 
+global cache_handler
+#cache_handler=FileCacheHandler()
+cache_handler=MemoryCacheHandler()
+
 if __name__ == '__main__':  
     socket.setdefaulttimeout(10)
     server_class = ThreadedHTTPServer
     httpd = server_class((HOST_NAME, PORT_NUMBER), MyHandler)
-    print "AxelProxy Downloader Starts - %s:%s" % (HOST_NAME, PORT_NUMBER)
+    print "AxelProxy Downloader Starting - %s:%s" % (HOST_NAME, PORT_NUMBER)
     while(True):
         httpd.handle_request()
     httpd.server_close()
-    print "AxelProxy Downloader Stops %s:%s" % (HOST_NAME, PORT_NUMBER)
+    print "AxelProxy Downloader Stopping %s:%s" % (HOST_NAME, PORT_NUMBER)
