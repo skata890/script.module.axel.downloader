@@ -30,7 +30,6 @@ import threading
 from SocketServer import ThreadingMixIn
 from BaseHTTPServer import HTTPServer, BaseHTTPRequestHandler
 
-from CacheHandler import *
 import axel
 import common
 
@@ -102,12 +101,12 @@ class MyHandler(BaseHTTPRequestHandler):
         # - Else Save file info to cache
         file_dest = os.path.join(common.profile_path, file_name)
         
-        cached = self.get_from_cache(file_dest)
+        cached = self.get_from_cache(file_name)
         if cached:
             (file_size, file_name) = cached
         else:
             file_size=int(self.get_file_size(file_url))
-            self.save_to_cache(file_dest, (file_size, file_name))
+            self.save_to_cache(file_name, (file_size, file_name))
 
         (hrange, crange) = self.get_range_request(s_range, file_size)
         
@@ -131,10 +130,10 @@ class MyHandler(BaseHTTPRequestHandler):
         self.send_http_headers(file_name, rtype, content_size , etag)
 
         #Send the video file
-        self.send_video(self.wfile, file_url, file_dest, hrange)
+        self.send_video(self.wfile, file_url, file_dest, hrange, file_size)
 
 
-    def send_video(self, file_out, file_link, file_dest, start_byte):
+    def send_video(self, file_out, file_link, file_dest, start_byte, file_size):
         print 'Starting download at byte: %d' % start_byte
         
         #import axel
@@ -143,11 +142,20 @@ class MyHandler(BaseHTTPRequestHandler):
         
         #dt = threading.Thread(target=axel.download, args = (file_link, file_dest, file_name))
         #dt.start()
-
-        file_out.write(file_dest)
-        file_out.flush()
         
-
+        try:
+            #Opening file
+            
+            print 'FILE DEST: %s' % file_dest
+            out_fd = open(file_dest, "rb")
+            out_fd.seek(start_byte)
+            file_out.write(out_fd.read())
+            file_out.flush()
+            out_fd.close()
+        except Exception, e:
+            print 'Exception sending file: %s' % e
+            pass
+        
 
     def get_file_size(self, url):
         request = urllib2.Request(url, None, http_headers)
@@ -207,21 +215,20 @@ class MyHandler(BaseHTTPRequestHandler):
         return (url, file_name )
 
 
-    def get_from_cache(self, request):
-        global cache_handler
+    def get_from_cache(self, name):
+        global file_cache
         try:
-            a=cache_handler.getFromCache(request)
-            return a
+            return file_cache[name]
         except:
             return None
 
 
-    def save_to_cache(self, request, what):
-        global cache_handler
+    def save_to_cache(self, name, details):
+        global file_cache
         try:
-            cache_handler.saveToCache(request, what)
+            file_cache[name]=details
         except Exception, e:
-            print 'S EXCEPTION', e
+            print 'Error attempting to save to cache: %s', e
             pass
 
 
@@ -249,9 +256,9 @@ class ThreadedHTTPServer(ThreadingMixIn, Server):
 HOST_NAME = '127.0.0.1'
 PORT_NUMBER = 64653
 
-global cache_handler
-#cache_handler=FileCacheHandler()
-cache_handler=MemoryCacheHandler()
+#Init file_cache - stores file information for repeat requests
+global file_cache
+file_cache={}
 
 if __name__ == '__main__':  
     socket.setdefaulttimeout(10)
