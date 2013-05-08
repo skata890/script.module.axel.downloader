@@ -85,10 +85,8 @@ class AxelDownloader:
         try:
             data = urllib2.urlopen(request)
             content_length = data.info()['Content-Length']
-            request.close()
         except urllib2.URLError, e:
             common.addon.log_error('http connection error attempting to retreive file size: %s' % str(e))
-            request.close()
             return False
   
         return content_length
@@ -170,19 +168,24 @@ class AxelDownloader:
             i += 1
     
 
-    def download(self, file_link, file_dest, file_name=''):
+    def download(self, file_link, file_dest='', file_name=''):
         '''
         Main function to perform download
               
         Args:
             file_link (str): direct link to file including file name
-            file_dest (str): full path to save location - EXCLUDING file_name
         Kwargs:
+            file_dest (str): full path to save location - EXCLUDING file_name        
             file_name (str): name of saved file - name will be pulled from file_link if not supplied
         ''' 
-   
+
+        if not file_dest:
+            file_dest = common.profile_path
+               
         # Create output file with a .part extension to indicate partial download
-        # TO-DO: add better file check if exists and creation
+        if not os.path.exists(file_dest):
+            os.makedirs(file_dest)
+            
         out_file = os.path.join(file_dest, file_name)
         part_file = out_file + ".part"
         out_fd = os.open(out_file, os.O_CREAT | os.O_WRONLY)
@@ -219,6 +222,11 @@ class AxelDownloader:
 
 class Downloader(threading.Thread):
     def __init__(self):
+        '''
+        Class init      
+        
+        Inherits threading.Thread
+        '''    	
         threading.Thread.__init__(self)
 
         self.http_headers = {
@@ -273,7 +281,15 @@ class Downloader(threading.Thread):
 
  
     def __download_file(self, block_num, url, start, length):        
-
+        '''
+        download worker function
+              
+        Args:
+            block_num (int): where in the file this block belongs
+            url (str): direct link to file for download
+            start (int): starting block to download from
+            length (int): length of bytes to read for this block
+        ''' 
         request = urllib2.Request(url, None, self.http_headers)
         if length == 0:
             return None
